@@ -53,7 +53,7 @@ function parseWorkbook(wb){
   baselines.set(id,original);
  }
  if(!roundId||roundId!==activeRound.id)throw Error('Excel-filen tilhører ikke den aktuelle åbne vurderingsrunde ('+activeRound.title+').');
- if(baselines.size!==37)throw Error('Filen skal indeholde synkroniseringsdata for alle 37 spillere. Fandt '+baselines.size+'.');
+ if(!baselines.size)throw Error('Filen indeholder ingen synkroniseringsdata for spillere.');
  for(let r=2;r<=roster.rowCount;r++){
   const id=norm(cellValue(roster,r,4));if(!id)continue;
   if(!baselines.has(id))throw Error('Ukendt spiller-ID i fanen Spillere, række '+r);
@@ -75,7 +75,7 @@ function parseWorkbook(wb){
   keys.forEach((k,i)=>{const raw=cellValue(shared,r,i+3);values[k]=i<4?score(raw,playerName+' · '+names[k]):String(raw??'')});
   const diffs=[];
   for(const k of ['current_level',...keys])if(!valEq(values[k],original[k]))diffs.push({key:k,from:original[k],to:values[k]});
-  if(diffs.length){changes.push(values);rows.push({name:playerName,diffs})}
+  if(diffs.length){if(!values.expected_assessment_updated_at)throw Error('Der mangler et vurderingstidspunkt for '+playerName+'. Opret først en fælles vurdering i appen, og download en ny fil.');changes.push(values);rows.push({name:playerName,diffs})}
  }
  return {roundId,changes,rows,total:baselines.size};
 }
