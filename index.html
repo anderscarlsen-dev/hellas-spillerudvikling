@@ -47,45 +47,21 @@ async function load(){const {data:{user},error:ue}=await sb.auth.getUser();if(ue
         fetchAll(sb.from('shared_assessments').select('player_id,technique,tactics,physical,mental_social,strengths,development,assessment_updated_at,conversation_notes,conversation_completed,conversation_completed_at,conversation_completed_by').eq('round_id',round.id)),
         fetchAll(sb.from('coach_assessments').select('coach_id,player_id,technique,tactics,physical,mental_social,strengths,development').eq('round_id',round.id))
       ]);
-      if(new Set(ps.map(p=>p.id)).size!==ps.length)throw new Error('Spillerlisten indeholder dublerede ID’er.');
+      if(ps.length!==37||new Set(ps.map(p=>p.id)).size!==37)throw new Error('Forventede 37 aktive spillere. Download afbrudt for at undgå en ufuldstændig fil.');
       const workbook=new ExcelJS.Workbook();
       const bytes=Uint8Array.from(atob(HELLAS_TEMPLATE),c=>c.charCodeAt(0));
       await workbook.xlsx.load(bytes.buffer);
       const roster=workbook.getWorksheet('Spillere');if(!roster)throw new Error('Fanen Spillere mangler.');
       const byId=new Map(ps.map(p=>[p.id,p]));const rowById=new Map();
-      // The workbook is a styled 37-player template, not a fixed roster.
-      // Assign every active player to a consecutive row; clear unused rows.
-      // Additional rows inherit the last styled template row and average formulas.
-      const capacity=37,firstRow=2,lastTemplateRow=firstRow+capacity-1;
-      const coachSheets=['Jakob','Martin','Morten','Danni','Anders B','Anders C'];
-      const dataSheets=[...coachSheets,'Gennemsnit','Fælles vurdering'];
-      const sortedPlayers=[...ps].sort((a,b)=>(levelRank[a.current_level]??9)-(levelRank[b.current_level]??9)||a.name.localeCompare(b.name,'da'));
-      for(let i=0;i<sortedPlayers.length;i++)rowById.set(sortedPlayers[i].id,firstRow+i);
-      for(const sheetName of ['Spillere',...dataSheets]){
-        const sh=workbook.getWorksheet(sheetName);if(!sh)throw new Error('Excel-fanen '+sheetName+' mangler.');
-        for(let r=lastTemplateRow+1;r<firstRow+sortedPlayers.length;r++){
-          const source=sh.getRow(lastTemplateRow),dest=sh.getRow(r);
-          dest.height=source.height;
-          source.eachCell({includeEmpty:true},(cell,col)=>{
-            const target=dest.getCell(col);
-            target.style=JSON.parse(JSON.stringify(cell.style||{}));
-            if(sheetName==='Gennemsnit'&&col>=3&&col<=6&&cell.value?.formula){
-              target.value={formula:cell.value.formula.replace(/(?<![A-Za-z0-9_])38(?![0-9])/g,String(r))};
-            }
-          });
-        }
-        for(let r=firstRow;r<=Math.max(lastTemplateRow,firstRow+sortedPlayers.length-1);r++){
-          const p=sortedPlayers[r-firstRow];
-          sh.getCell(r,1).value=p?.name??null;
-          sh.getCell(r,2).value=p?.current_level??null;
-          if(sheetName==='Spillere')sh.getCell(r,4).value=p?.id??null;
-          if(!p){
-            if(coachSheets.includes(sheetName)||sheetName==='Fælles vurdering')for(let c=3;c<=12;c++)sh.getCell(r,c).value=null;
-            // Preserve the average formulas so future downloads can reuse these rows.
-          }
-        }
+      for(let r=2;r<=roster.rowCount;r++){
+        const id=String(roster.getCell('D'+r).value||'').trim();if(!id)continue;
+        if(!byId.has(id))throw new Error('Ukendt spiller-ID i skabelonen, række '+r);
+        if(rowById.has(id))throw new Error('Dubleret spiller-ID i skabelonen: '+id);
+        rowById.set(id,r);
       }
+      if(rowById.size!==37)throw new Error('Excel-skabelonen indeholder ikke præcis 37 matchede Supabase-ID’er.');
       roster.state='veryHidden'; // Skjul den tekniske spillerliste i den downloadede Excel-fil.
+      const coachSheets=['Jakob','Martin','Morten','Danni','Anders B','Anders C'];
       const coachId=new Map();
       for(const name of coachSheets){
         const matching=coaches.filter(c=>c.display_name?.trim().toLocaleLowerCase('da-DK')===name.toLocaleLowerCase('da-DK'));
