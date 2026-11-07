@@ -103,6 +103,15 @@ async function load(){const {data:{user},error:ue}=await sb.auth.getUser();if(ue
       meta.addRow(['round_id','player_id','assessment_updated_at','player_updated_at','current_level','technique','tactics','physical','mental_social','strengths','development']);
       for(const [id] of rowById){const p=byId.get(id),a=byShared.get(id);meta.addRow([round.id,id,a?.assessment_updated_at||'',p.updated_at||'',p.current_level,...scoreKeys.map(k=>a?.[k]??''),a?.strengths??'',a?.development??'']);}
       meta.state='veryHidden';
+      // Link to the shared upload page, accessible from the Excel cover sheet.
+      const cover=workbook.getWorksheet('START HER');
+      if(!cover)throw new Error('Fanen START HER mangler.');
+      cover.getCell('A22').value='UPLOAD EFTER TRÆNERMØDET';
+      cover.getCell('A22').font={bold:true,size:13,color:{argb:'FFA50D2D'}};
+      cover.getCell('A23').value={text:'Klik her for at uploade de fælles vurderinger til Hellas',hyperlink:'https://anderscarlsen-dev.github.io/hellas-spillerudvikling/upload.html',tooltip:'Åbn Hellas uploadside'};
+      cover.getCell('A23').font={bold:true,underline:true,color:{argb:'FF0563C1'}};
+      cover.getCell('A24').value='Kun de fælles vurderinger og holdindplaceringer overføres. Login og godkendelse kræves.';
+      cover.getCell('A24').font={italic:true,color:{argb:'FF66717C'},size:10};
       const buffer=await workbook.xlsx.writeBuffer();
       const file=new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
       const url=URL.createObjectURL(file);const link=document.createElement('a');link.href=url;link.download='Hellas_Spillerudvikling_'+round.title.replace(/[^a-zA-Z0-9æøåÆØÅ-]/g,'_')+'.xlsx';document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
