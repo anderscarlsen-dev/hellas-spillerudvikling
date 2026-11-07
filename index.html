@@ -47,7 +47,7 @@ async function load(){const {data:{user},error:ue}=await sb.auth.getUser();if(ue
         fetchAll(sb.from('shared_assessments').select('player_id,technique,tactics,physical,mental_social,strengths,development,assessment_updated_at,conversation_notes,conversation_completed,conversation_completed_at,conversation_completed_by').eq('round_id',round.id)),
         fetchAll(sb.from('coach_assessments').select('coach_id,player_id,technique,tactics,physical,mental_social,strengths,development').eq('round_id',round.id))
       ]);
-      if(ps.length!==37||new Set(ps.map(p=>p.id)).size!==37)throw new Error('Forventede 37 aktive spillere. Download afbrudt for at undgå en ufuldstændig fil.');
+      if(!ps.length||new Set(ps.map(p=>p.id)).size!==ps.length)throw new Error('Spillerlisten er tom eller indeholder dublerede ID’er.');
       const workbook=new ExcelJS.Workbook();
       const bytes=Uint8Array.from(atob(HELLAS_TEMPLATE),c=>c.charCodeAt(0));
       await workbook.xlsx.load(bytes.buffer);
@@ -55,11 +55,22 @@ async function load(){const {data:{user},error:ue}=await sb.auth.getUser();if(ue
       const byId=new Map(ps.map(p=>[p.id,p]));const rowById=new Map();
       for(let r=2;r<=roster.rowCount;r++){
         const id=String(roster.getCell('D'+r).value||'').trim();if(!id)continue;
-        if(!byId.has(id))throw new Error('Ukendt spiller-ID i skabelonen, række '+r);
+        if(!byId.has(id))continue; // Inaktive spillere udelades af eksporten.
         if(rowById.has(id))throw new Error('Dubleret spiller-ID i skabelonen: '+id);
         rowById.set(id,r);
       }
-      if(rowById.size!==37)throw new Error('Excel-skabelonen indeholder ikke præcis 37 matchede Supabase-ID’er.');
+      if(rowById.size!==ps.length)throw new Error('Excel-skabelonen mangler '+(ps.length-rowById.size)+' aktive spillere. Nye spillere kræver en udvidet skabelon.');
+      // Bevar de eksisterende 37 skabelonrækker og formler, men skjul inaktive spillere.
+      for(let r=2;r<=roster.rowCount;r++){
+        const id=String(roster.getCell('D'+r).value||'').trim();
+        if(!id||byId.has(id))continue;
+        roster.getCell(r,1).value=null;roster.getCell(r,2).value=null;roster.getCell(r,4).value=null;roster.getRow(r).hidden=true;
+        for(const name of ['Jakob','Martin','Morten','Danni','Anders B','Anders C','Gennemsnit','Fælles vurdering']){
+          const sh=workbook.getWorksheet(name);if(!sh)continue;
+          for(let c=1;c<=12;c++)sh.getCell(r,c).value=null;
+          sh.getRow(r).hidden=true;
+        }
+      }
       roster.state='veryHidden'; // Skjul den tekniske spillerliste i den downloadede Excel-fil.
       const coachSheets=['Jakob','Martin','Morten','Danni','Anders B','Anders C'];
       const coachId=new Map();
