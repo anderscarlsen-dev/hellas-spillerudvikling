@@ -42,7 +42,7 @@ async function load(){const {data:{user},error:ue}=await sb.auth.getUser();if(ue
       if(!currentUser||!profile?.active||!round)throw new Error('Log ind og vælg en vurderingsrunde først.');
       const [ExcelJS,ps,coaches,shared,assessments]=await Promise.all([
         loadExcelJS(),
-        fetchAll(sb.from('players').select('id,name,current_level').eq('active',true)),
+        fetchAll(sb.from('players').select('id,name,current_level,updated_at').eq('active',true)),
         fetchAll(sb.from('profiles').select('user_id,display_name,is_coach,active').eq('is_coach',true)),
         fetchAll(sb.from('shared_assessments').select('player_id,technique,tactics,physical,mental_social,strengths,development,assessment_updated_at,conversation_notes,conversation_completed,conversation_completed_at,conversation_completed_by').eq('round_id',round.id)),
         fetchAll(sb.from('coach_assessments').select('coach_id,player_id,technique,tactics,physical,mental_social,strengths,development').eq('round_id',round.id))
@@ -100,8 +100,8 @@ async function load(){const {data:{user},error:ue}=await sb.auth.getUser();if(ue
       // Store read-only sync metadata for the later, separate Excel upload workflow.
       let meta=workbook.getWorksheet('_Hellas_sync');if(meta)throw new Error('Skabelonen har allerede synkroniseringsmetadata.');
       meta=workbook.addWorksheet('_Hellas_sync');
-      meta.addRow(['round_id','player_id','assessment_updated_at','current_level','technique','tactics','physical','mental_social','strengths','development']);
-      for(const [id] of rowById){const p=byId.get(id),a=byShared.get(id);meta.addRow([round.id,id,a?.assessment_updated_at||'',p.current_level,...scoreKeys.map(k=>a?.[k]??''),a?.strengths??'',a?.development??'']);}
+      meta.addRow(['round_id','player_id','assessment_updated_at','player_updated_at','current_level','technique','tactics','physical','mental_social','strengths','development']);
+      for(const [id] of rowById){const p=byId.get(id),a=byShared.get(id);meta.addRow([round.id,id,a?.assessment_updated_at||'',p.updated_at||'',p.current_level,...scoreKeys.map(k=>a?.[k]??''),a?.strengths??'',a?.development??'']);}
       meta.state='veryHidden';
       const buffer=await workbook.xlsx.writeBuffer();
       const file=new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
