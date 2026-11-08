@@ -114,7 +114,22 @@ async function load(){const {data:{user},error:ue}=await sb.auth.getUser();if(ue
         for(const k of ['strengths','development']){
           initialShared[k]=sourceAssessments.filter(x=>String(x.assessment?.[k]??'').trim()).map(x=>x.name+': '+x.assessment[k]).join('\n');
         }
-        const a=existingShared??initialShared;
+        const a={...(existingShared??initialShared)};
+        // Include every coach's comment, even when a shared assessment already exists.
+        // Keep existing shared text and append only coach comments not already present.
+        if(existingShared){
+          for(const k of ['strengths','development']){
+            let combined=String(existingShared[k]??'').trim();
+            for(const x of sourceAssessments){
+              const comment=String(x.assessment?.[k]??'').trim();
+              if(!comment)continue;
+              if(!combined.includes(comment)){
+                combined+=(combined?'\n':'')+x.name+': '+comment;
+              }
+            }
+            a[k]=combined;
+          }
+        }
         fillSports(sh,r,a);
         sh.getCell(r,9).value=a?.conversation_notes??'';
         sh.getCell(r,10).value=a?.conversation_completed?'Ja':'Nej';
