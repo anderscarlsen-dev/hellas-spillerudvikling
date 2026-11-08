@@ -97,7 +97,8 @@ async function load(){const {data:{user},error:ue}=await sb.auth.getUser();if(ue
         }
         const avg=workbook.getWorksheet('Gennemsnit');
         avg.getCell(r,1).value=player.name;avg.getCell(r,2).value=player.current_level;
-        // Preserve the existing formulas in Gennemsnit.
+        // Beregn Gennemsnit direkte ud fra samme aktuelle trænerdata som Fælles vurdering.
+        // ExcelJS genberegner ikke formler, og gamle cacheværdier kan derfor vise forkerte kommentarer.
         const sh=workbook.getWorksheet('Fælles vurdering');
         if(!sh)throw new Error('Fanen Fælles vurdering mangler.');
         sh.getCell(r,1).value=player.name;sh.getCell(r,2).value=player.current_level;
@@ -114,6 +115,8 @@ async function load(){const {data:{user},error:ue}=await sb.auth.getUser();if(ue
         for(const k of ['strengths','development']){
           initialShared[k]=sourceAssessments.filter(x=>String(x.assessment?.[k]??'').trim()).map(x=>x.name+': '+x.assessment[k]).join('\n');
         }
+        // Brug samme komplette trænergrundlag i begge faner. Gennemsnit er ikke redigerbar som fælles beslutning.
+        fillSports(avg,r,initialShared);
         const a={...(existingShared??initialShared)};
         // Include every coach's comment, even when a shared assessment already exists.
         // Keep existing shared text and append only coach comments not already present.
