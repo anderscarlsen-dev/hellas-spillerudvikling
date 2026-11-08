@@ -134,6 +134,27 @@ async function load(){const {data:{user},error:ue}=await sb.auth.getUser();if(ue
           }
         }
         fillSports(sh,r,a);
+        // Excel genberegner ikke altid rækkehøjden ved åbning, selv når tekstombrydning er slået til.
+        // Sæt derfor både tekstombrydning og en passende højde i selve den eksporterede fil.
+        const showAllComments=(sheet)=>{
+          const commentCols=[7,8];
+          let neededLines=1;
+          for(const col of commentCols){
+            const cell=sheet.getCell(r,col);
+            cell.alignment={...(cell.alignment||{}),wrapText:true,vertical:'top'};
+            const content=String(cell.value??'');
+            const colWidth=Number(sheet.getColumn(col).width)||45;
+            // Brug lidt sikkerhedsmargin, da Excel's tegnbredde afhænger af skrifttypen.
+            const charsPerLine=Math.max(12,Math.floor(colWidth*0.85));
+            const lines=content.split(/\r?\n/).reduce((count,line)=>count+Math.max(1,Math.ceil(line.length/charsPerLine)),0);
+            neededLines=Math.max(neededLines,lines);
+          }
+          const row=sheet.getRow(r);
+          const minimum=Number(row.height)||20;
+          row.height=Math.min(409,Math.max(minimum,neededLines*16+9));
+        };
+        showAllComments(avg);
+        showAllComments(sh);
         sh.getCell(r,9).value=a?.conversation_notes??'';
         sh.getCell(r,10).value=a?.conversation_completed?'Ja':'Nej';
         sh.getCell(r,11).value=a?.conversation_completed_at?new Date(a.conversation_completed_at):null;
