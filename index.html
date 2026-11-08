@@ -101,8 +101,20 @@ async function load(){const {data:{user},error:ue}=await sb.auth.getUser();if(ue
         const sh=workbook.getWorksheet('Fælles vurdering');
         if(!sh)throw new Error('Fanen Fælles vurdering mangler.');
         sh.getCell(r,1).value=player.name;sh.getCell(r,2).value=player.current_level;
-        const a=byShared.get(id);
-        // Shared assessments reflect Supabase, not the template's default average formulas.
+        const existingShared=byShared.get(id);
+        // Start new shared assessments with the same per-criterion averages and
+        // combined coach comments as Gennemsnit. These are plain editable values,
+        // not formulas. Existing shared assessments always take precedence.
+        const sourceAssessments=coachSheets.map(name=>({name,assessment:byCoach.get(coachId.get(name)+'|'+id)}));
+        const initialShared={};
+        scoreKeys.forEach(k=>{
+          const values=sourceAssessments.map(x=>x.assessment?.[k]).filter(v=>v!==null&&v!==undefined&&v!==''&&Number.isFinite(Number(v))).map(Number);
+          initialShared[k]=values.length?values.reduce((sum,v)=>sum+v,0)/values.length:null;
+        });
+        for(const k of ['strengths','development']){
+          initialShared[k]=sourceAssessments.filter(x=>String(x.assessment?.[k]??'').trim()).map(x=>x.name+': '+x.assessment[k]).join('\n');
+        }
+        const a=existingShared??initialShared;
         fillSports(sh,r,a);
         sh.getCell(r,9).value=a?.conversation_notes??'';
         sh.getCell(r,10).value=a?.conversation_completed?'Ja':'Nej';
