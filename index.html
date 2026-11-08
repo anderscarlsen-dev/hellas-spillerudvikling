@@ -139,10 +139,91 @@ async function load(){const {data:{user},error:ue}=await sb.auth.getUser();if(ue
  async function refreshAverages(){if(!round)return;const target=tab;const results=await Promise.allSettled(players.map(p=>getAverage(p.id)));if(tab!==target||selected)return;averageAssess=results.map((r,i)=>r.status==='fulfilled'?{...r.value,player_id:players[i].id}:{player_id:players[i].id});if(results.some(r=>r.status==='rejected')){const e=results.find(r=>r.status==='rejected');$('content').insertAdjacentHTML('afterbegin',`<p class="notice">Nogle gennemsnit kunne ikke hentes: ${esc(e.reason?.message||'Ukendt fejl')}</p>`)}else renderAverageRows()}
  function renderAverageRows(){if(tab!=='average'||selected)return;document.querySelectorAll('#content tbody tr[data-id]').forEach(tr=>{const a=averageAssess.find(x=>x.player_id===tr.dataset.id)||{};fields.forEach((f,i)=>{const cell=tr.cells[i+1];if(cell)cell.textContent=a[f]??'–'})})}
  async function initializeShared(playerId){const btn=$('initShared');btn.disabled=true;btn.textContent='Opretter…';try{const {error}=await sb.rpc('hellas_initialize_shared',{p_round_id:round.id,p_player_id:playerId});if(error)throw error;await refreshShared();if(!sharedAssess.some(a=>a.player_id===playerId)){btn.textContent='Ingen individuelle vurderinger endnu';return}render()}catch(e){btn.disabled=false;btn.textContent='Prøv igen';alert('Kunne ikke oprette fælles vurdering: '+e.message)}}
- function scheduleSave(playerId,a,target){const arr=target==='shared'||target==='conversation'?sharedAssess:ownAssess;if(!arr.some(x=>x.player_id===playerId))arr.push(Object.assign({player_id:playerId},a));saveTarget={playerId,target};dirty=true;const el=$('saveStatus');if(el)el.textContent='Ændringer afventer gemning…';clearTimeout(saveTimer);saveTimer=setTimeout(()=>{saveTimer=null;persist()},650)}
- async function persist(){if(saveBusy||!dirty)return;if(!round||round.status!=='open'||!currentUser||!saveTarget)return;saveBusy=true;dirty=false;const {playerId,target}=saveTarget;const arr=target==='shared'||target==='conversation'?sharedAssess:ownAssess;const a=arr.find(x=>x.player_id===playerId);if(!a){saveBusy=false;return}const snapshot=Object.fromEntries([...fields,'strengths','development'].map(k=>[k,a[k]??(fields.includes(k)?null:'')]));const el=$('saveStatus');if(el)el.textContent='Gemmer…';try{let result;if(target==='conversation'){result=await sb.from('shared_assessments').update({conversation_notes:a.conversation_notes||'',conversation_completed:!!a.conversation_completed}) .eq('round_id',round.id).eq('player_id',playerId).select('id,conversation_completed,conversation_completed_at,conversation_completed_by');}else if(target==='shared'){result=await sb.from('shared_assessments').update(snapshot).eq('round_id',round.id).eq('player_id',playerId).select('id')}else{const lookup=await sb.from('coach_assessments').select('id').eq('round_id',round.id).eq('player_id',playerId).eq('coach_id',currentUser.id).maybeSingle();if(lookup.error)throw lookup.error;if(lookup.data?.id){result=await sb.from('coach_assessments').update(snapshot).eq('id',lookup.data.id).eq('coach_id',currentUser.id).select('id')}else{result=await sb.from('coach_assessments').insert({...snapshot,round_id:round.id,player_id:playerId,coach_id:currentUser.id}).select('id')}}if(result.error)throw result.error;if(!result.data?.length)throw new Error('Databasen afviste ændringen.');if(target==='conversation'&&result.data?.[0]){Object.assign(a,result.data[0]);const meta=$('conversation_meta');if(meta&&selected===playerId&&tab==='shared')meta.textContent=a.conversation_completed?'Gennemført '+dateText(a.conversation_completed_at)+' af '+(memberNames[a.conversation_completed_by]||profile.display_name):'Samtalen afventer'}if(el)el.textContent=dirty?'Nye ændringer afventer gemning…':'Gemt ✓'}catch(e){dirty=true;if(el){el.textContent='Kunne ikke gemme: '+(e.message||e)+' — prøv igen.';const retry=document.createElement('button');retry.textContent='Prøv at gemme igen';retry.onclick=()=>persist();el.append(' ',retry)}}finally{saveBusy=false;if(dirty&&!document.querySelector('#saveStatus button')){clearTimeout(saveTimer);saveTimer=setTimeout(()=>{saveTimer=null;persist()},650)}}}
- async function flushSave(){if(saveTimer){clearTimeout(saveTimer);saveTimer=null;await persist()}if(saveBusy||dirty){alert('Vent, indtil vurderingen er gemt.');return false}return true}
-
+ let savePromise=null,saveError=null,changeVersion=0;
+ function scheduleSave(playerId,a,target){
+  const arr=target==='shared'||target==='conversation'?sharedAssess:ownAssess;
+  if(!arr.some(x=>x.player_id===playerId))arr.push(Object.assign({player_id:playerId},a));
+  saveTarget={playerId,target};dirty=true;changeVersion++;saveError=null;
+  const el=$('saveStatus');if(el)el.textContent='Ændringer afventer gemning…';
+  clearTimeout(saveTimer);saveTimer=setTimeout(()=>{saveTimer=null;persist()},650);
+ }
+ async function persist(){
+  if(savePromise)return savePromise;
+  if(!dirty)return true;
+  if(!round||round.status!=='open'||!currentUser||!saveTarget)return false;
+  clearTimeout(saveTimer);saveTimer=null;
+  const {playerId,target}=saveTarget;
+  const arr=target==='shared'||target==='conversation'?sharedAssess:ownAssess;
+  const a=arr.find(x=>x.player_id===playerId);
+  if(!a)return false;
+  const version=changeVersion;
+  const snapshot=Object.fromEntries([...fields,'strengths','development'].map(k=>[k,a[k]??(fields.includes(k)?null:'')]));
+  const conversationSnapshot={conversation_notes:a.conversation_notes||'',conversation_completed:!!a.conversation_completed};
+  const el=$('saveStatus');if(el)el.textContent='Gemmer…';
+  saveBusy=true;
+  savePromise=(async()=>{
+   try{
+    let result;
+    if(target==='conversation'){
+     result=await sb.from('shared_assessments').update(conversationSnapshot)
+      .eq('round_id',round.id).eq('player_id',playerId)
+      .select('id,conversation_completed,conversation_completed_at,conversation_completed_by');
+    }else if(target==='shared'){
+     result=await sb.from('shared_assessments').update(snapshot)
+      .eq('round_id',round.id).eq('player_id',playerId).select('id');
+    }else{
+     const lookup=await sb.from('coach_assessments').select('id')
+      .eq('round_id',round.id).eq('player_id',playerId)
+      .eq('coach_id',currentUser.id).maybeSingle();
+     if(lookup.error)throw lookup.error;
+     if(lookup.data?.id){
+      result=await sb.from('coach_assessments').update(snapshot)
+       .eq('id',lookup.data.id).eq('coach_id',currentUser.id).select('id');
+     }else{
+      result=await sb.from('coach_assessments').insert({...snapshot,round_id:round.id,player_id:playerId,coach_id:currentUser.id}).select('id');
+     }
+    }
+    if(result.error)throw result.error;
+    if(!result.data?.length)throw new Error('Databasen afviste ændringen.');
+    if(target==='conversation'&&result.data?.[0]){
+     // Metadata må opdateres, men nyere indtastninger må ikke overskrives.
+     const {id,conversation_completed_at,conversation_completed_by}=result.data[0];
+     Object.assign(a,{conversation_completed_at,conversation_completed_by});
+     const meta=$('conversation_meta');
+     if(meta&&selected===playerId&&tab==='shared'&&changeVersion===version)
+      meta.textContent=conversationSnapshot.conversation_completed?'Gennemført '+dateText(conversation_completed_at)+' af '+(memberNames[conversation_completed_by]||profile.display_name):'Samtalen afventer';
+    }
+    saveError=null;
+    if(changeVersion===version){dirty=false;if(el)el.textContent='Gemt ✓';}
+    else if(el)el.textContent='Nye ændringer afventer gemning…';
+    return true;
+   }catch(e){
+    saveError=e;dirty=true;
+    if(el){
+     el.textContent='Kunne ikke gemme: '+(e.message||e)+' — prøv igen.';
+     const retry=document.createElement('button');retry.textContent='Prøv at gemme igen';
+     retry.onclick=()=>{saveError=null;persist()};el.append(' ',retry);
+    }
+    return false;
+   }
+  })();
+  try{return await savePromise}
+  finally{
+   savePromise=null;saveBusy=false;
+   if(dirty&&!saveError){
+    clearTimeout(saveTimer);saveTimer=setTimeout(()=>{saveTimer=null;persist()},150);
+   }
+  }
+ }
+ async function flushSave(){
+  clearTimeout(saveTimer);saveTimer=null;
+  // Vent på en igangværende gemning, og gem derefter eventuelle nyere ændringer.
+  while(savePromise){await savePromise}
+  if(dirty&&!saveError)await persist();
+  while(savePromise){await savePromise}
+  if(dirty||saveError){alert('Vurderingen er ikke gemt. Prøv at gemme igen, før du går tilbage.');return false}
+  return true;
+ }
 document.querySelectorAll('#tabs button').forEach(b=>b.onclick=async()=>{if(!(await flushSave()))return;if(!profile.is_coach&&b.dataset.tab!=='shared')return;tab=b.dataset.tab;selected=null;if(tab==='shared'){try{await refreshShared()}catch(e){alert('Kunne ikke hente fælles vurderinger: '+e.message);return}}render()});
 try{await load()}catch(e){showLogin();fail(e)}
 </script></body></html>
